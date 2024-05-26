@@ -1,0 +1,152 @@
+- name: Provisionamiento de servidor web y monitoreo
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Instalar Nginx
+      apt:
+        name: nginx
+        state: present
+    - name: Configurar Nginx
+      template:
+        src: provisionamiento/nginx.conf.j2
+        dest: /etc/nginx/sites-available/default
+      notify:
+        - restart nginx
+    - name: Instalar el exporter de métricas de Nginx
+      get_url:
+        url: "https://github.com/nginxinc/nginx-prometheus-exporter/releases/download/v0.11.0/nginx-prometheus-exporter_0.11.0_linux_amd64.tar.gz"
+        dest: /tmp/nginx-prometheus-exporter.tar.gz
+
+    - name: Extraer el exporter de métricas de Nginx
+      ansible.builtin.unarchive:
+        src: /tmp/nginx-prometheus-exporter.tar.gz
+        dest: /opt/
+        remote_src: yes
+
+    - name: Configurar servicio del exporter de métricas de Nginx
+      ansible.builtin.template:
+        src: provisionamiento/nginx-prometheus-exporter.service.j2
+        dest: /etc/systemd/system/nginx-prometheus-exporter.service
+      notify:
+        - reload systemd
+
+    - name: Descargar Prometheus
+      get_url:
+        url: "https://github.com/prometheus/prometheus/releases/download/v2.33.1/prometheus-2.33.1.linux-amd64.tar.gz"
+        dest: /tmp/prometheus.tar.gz
+
+    - name: Extraer Prometheus
+      ansible.builtin.unarchive:
+        src: /tmp/prometheus.tar.gz
+        dest: /opt/
+        remote_src: yes
+
+    - name: Crear usuario y grupo prometheus
+      ansible.builtin.group:
+        name: prometheus
+        state: present
+
+    - name: Crear usuario prometheus
+      ansible.builtin.user:
+        name: prometheus
+        group: prometheus
+        shell: /bin/false
+        system: yes
+
+    - name: Crear directorio de datos de Prometheus
+      ansible.builtin.file:
+        path: /var/lib/prometheus
+        state: directory
+        owner: prometheus
+        group: prometheus
+
+    - name: Copiar archivo de configuración de Prometheus
+      ansible.builtin.copy:
+        src: provisionamiento/prometheus.yml.j2
+        dest: /opt/prometheus-2.33.1.linux-amd64/prometheus.yml
+        owner: prometheus
+        group: prometheus
+        mode: "0644"
+
+    - name: Configurar servicio de Prometheus
+      ansible.builtin.template:
+        src: provisionamiento/prometheus.service.j2
+        dest: /etc/systemd/system/prometheus.service
+      notify:
+        - reload systemd
+
+    - name: Asegurarse de que el usuario prometheus tenga permisos en /etc/nginx-prometheus-exporter
+      ansible.builtin.file:
+        path: /etc/nginx-prometheus-exporter
+        state: directory
+        owner: prometheus
+        group: prometheus
+
+    - name: Configurar archivo de configuración del exporter de métricas de Nginx
+      ansible.builtin.copy:
+        src: provisionamiento/nginx-prometheus-exporter.conf
+        dest: /etc/nginx-prometheus-exporter/nginx-prometheus-exporter.conf
+        owner: prometheus
+        group: prometheus
+        mode: "0644"
+
+    - name: Iniciar servicio del exporter de métricas de Nginx
+      ansible.builtin.service:
+        name: nginx-prometheus-exporter
+        state: started
+        enabled: yes
+
+    - name: Asegurarse de que el usuario prometheus tenga permisos en /etc/prometheus
+      ansible.builtin.file:
+        path: /etc/prometheus
+        state: directory
+        owner: prometheus
+        group: prometheus
+
+    - name: Asegurarse de que el usuario prometheus tenga permisos en /var/lib/prometheus
+      ansible.builtin.file:
+        path: /var/lib/prometheus
+        state: directory
+        owner: prometheus
+        group: prometheus
+
+    - name: Descargar y configurar Grafana
+      get_url:
+        url: "https://dl.grafana.com/oss/release/grafana_8.2.5_amd64.deb"
+        dest: /tmp/grafana_8.2.5_amd64.deb
+
+    - name: Instalar Grafana
+      apt:
+        deb: /tmp/grafana_8.2.5_amd64.deb
+        state: present
+      notify:
+        - restart grafana
+
+    - name: Configurar Grafana
+      ansible.builtin.template:
+        src: provisionamiento/grafana.ini.j2
+        dest: /etc/grafana/grafana.ini
+      notify:
+        - restart grafana
+
+  handlers:
+    - name: restart nginx
+      service:
+        name: nginx
+        state: restarted
+
+    - name: restart grafana
+      service:
+        name: grafana-server
+        state: restarted
+
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes
+        state: restarted
+        name: prometheus

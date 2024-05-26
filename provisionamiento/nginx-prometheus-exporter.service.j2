@@ -1,0 +1,19 @@
+[Unit]
+Description=Nginx Exporter
+Wants=network-online.target
+After=network-online.target
+
+StartLimitIntervalSec=0
+
+[Service]
+User=prometheus
+Group=prometheus
+Type=simple
+Restart=on-failure
+RestartSec=5s
+
+ExecStart=/opt/nginx-prometheus-exporter \
+    -nginx.scrape-uri=http://localhost/metrics
+
+[Install]
+WantedBy=multi-user.target
