@@ -1,25 +1,60 @@
 - name: Provisionamiento de servidor web y monitoreo
   hosts: all
   become: true
-
+  vars:
+    new_user: nicolas
+    ssh_key_path: "ssh.pub"
   tasks:
+    # CREAR USUARIO SSH
+    - name: Crear usuario
+      user:
+        name: "{{ new_user }}"
+        state: present
+    - name: Establecer contraseña
+      user:
+        name: "{{ new_user }}"
+        password: "{{ '1234' | password_hash('sha512') }}"
+
+    - name: Crear directorio SSH
+      file:
+        path: "/home/{{ new_user }}/.ssh"
+        state: directory
+        mode: "0700"
+        owner: "{{ new_user }}"
+        group: "{{ new_user }}"
+
+    - name: Copiar llave SSH
+      copy:
+        src: "{{ ssh_key_path }}"
+        dest: "/home/{{ new_user }}/.ssh/authorized_keys"
+        mode: "0600"
+        owner: "{{ new_user }}"
+        group: "{{ new_user }}"
+
+    - name: Añadir usuario como superusuario
+      user:
+        name: "{{ new_user }}"
+        groups: sudo
+        append: yes
+
     - name: Update apt cache
       apt:
         update_cache: yes
-
+    # CONFIGURAR NGINX
     - name: Instalar Nginx
       apt:
         name: nginx
         state: present
     - name: Configurar Nginx
       template:
-        src: provisionamiento/nginx.conf.j2
+        src: provisionamiento/nginx.conf
         dest: /etc/nginx/sites-available/default
       notify:
         - restart nginx
+    # CONFIGURAR NGINX EXPORTER
     - name: Instalar el exporter de métricas de Nginx
       get_url:
-        url: "https://github.com/nginxinc/nginx-prometheus-exporter/releases/download/v0.11.0/nginx-prometheus-exporter_0.11.0_linux_amd64.tar.gz"
+        url: "https://github.com/nginxinc/nginx-prometheus-exporter/releases/download/v1.1.0/nginx-prometheus-exporter_1.1.0_linux_amd64.tar.gz"
         dest: /tmp/nginx-prometheus-exporter.tar.gz
 
     - name: Extraer el exporter de métricas de Nginx
@@ -30,14 +65,14 @@
 
     - name: Configurar servicio del exporter de métricas de Nginx
       ansible.builtin.template:
-        src: provisionamiento/nginx-prometheus-exporter.service.j2
+        src: provisionamiento/nginx-prometheus-exporter.service
         dest: /etc/systemd/system/nginx-prometheus-exporter.service
       notify:
         - reload systemd
-
+    # CONFIGURAR Prometheus
     - name: Descargar Prometheus
       get_url:
-        url: "https://github.com/prometheus/prometheus/releases/download/v2.33.1/prometheus-2.33.1.linux-amd64.tar.gz"
+        url: "https://github.com/prometheus/prometheus/releases/download/v2.45.5/prometheus-2.45.5.linux-amd64.tar.gz"
         dest: /tmp/prometheus.tar.gz
 
     - name: Extraer Prometheus
@@ -67,15 +102,15 @@
 
     - name: Copiar archivo de configuración de Prometheus
       ansible.builtin.copy:
-        src: provisionamiento/prometheus.yml.j2
-        dest: /opt/prometheus-2.33.1.linux-amd64/prometheus.yml
+        src: provisionamiento/prometheus.yml
+        dest: /opt/prometheus-2.45.5.linux-amd64/prometheus.yml
         owner: prometheus
         group: prometheus
         mode: "0644"
 
     - name: Configurar servicio de Prometheus
       ansible.builtin.template:
-        src: provisionamiento/prometheus.service.j2
+        src: provisionamiento/prometheus.service
         dest: /etc/systemd/system/prometheus.service
       notify:
         - reload systemd
@@ -119,7 +154,7 @@
       get_url:
         url: "https://dl.grafana.com/oss/release/grafana_8.2.5_amd64.deb"
         dest: /tmp/grafana_8.2.5_amd64.deb
-
+    # CONFIGURA Grafana
     - name: Instalar Grafana
       apt:
         deb: /tmp/grafana_8.2.5_amd64.deb
@@ -129,8 +164,14 @@
 
     - name: Configurar Grafana
       ansible.builtin.template:
-        src: provisionamiento/grafana.ini.j2
+        src: provisionamiento/grafana.ini
         dest: /etc/grafana/grafana.ini
+      notify:
+        - restart grafana
+    - name: Copiar archivo de configuración del data source
+      copy:
+        src: provisionamiento/grafana_provision_datasource.yaml
+        dest: /etc/grafana/provisioning/datasources/datasource.yaml
       notify:
         - restart grafana
 

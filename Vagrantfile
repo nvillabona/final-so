@@ -14,12 +14,9 @@ Vagrant.configure("2") do |config|
       vb.cpus = 2       # 2 núcleos de CPU
     end
   
-    # Configuración SSH 
-    config.ssh.username = "vagrant"
-
     # Provisionamiento con Ansible
     config.vm.provision "ansible" do |ansible|
-      ansible.playbook = "playbook.yml"
+      ansible.playbook = "playbook.yaml"
     end
   end
   
